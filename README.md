@@ -1,12 +1,17 @@
-# Homeservice Backend
+# HomeHQ Server
 
-A personal home management API built with Go. Manage bills, purchases, notes, chores, medicine stock, and contractors — all in one place.
+The API behind HomeHQ, one place to run a household: bills, purchases, notes,
+chores, medicine stock, contractors (with a Google Places lookup) and home
+cameras (Imou). Built with Go.
+
+The Flutter app lives in its own repository:
+[HomeHQ-client](https://github.com/beamMiter/HomeHQ-client).
 
 ---
 
 ## Tech Stack
 
-- **Language:** Go 1.24+
+- **Language:** Go 1.25+
 - **Router:** Chi
 - **Database:** PostgreSQL 16
 - **Auth:** JWT (HS256)
@@ -19,7 +24,7 @@ A personal home management API built with Go. Manage bills, purchases, notes, ch
 ## Project Structure
 
 ```
-homeservice-backend/
+HomeHQ-server/
 ├── cmd/
 │   ├── api/          # Main server entrypoint
 │   ├── migrate/      # Migration runner
@@ -40,8 +45,7 @@ homeservice-backend/
 │   ├── storage/      # Storage adapters (Local/R2)
 │   └── user/         # User & auth module
 ├── migrations/       # SQL migration files
-├── .env              # Environment variables (not committed)
-├── .env.example      # Environment variables template
+├── .env              # Docker Compose variables (yours, not committed)
 ├── docker-compose.yml
 ├── Dockerfile
 └── Makefile
@@ -53,24 +57,28 @@ homeservice-backend/
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - PostgreSQL 16 (or Docker)
 - Make (optional)
 
 ### 1. Clone & Setup
 
 ```bash
-git clone https://github.com/iMookatayou/homeservice-backend.git
-cd homeservice-backend
-cp .env.example .env
+git clone https://github.com/beamMiter/HomeHQ-server.git
+cd HomeHQ-server
 ```
 
-Edit `.env` with your configuration.
+The API reads the variables of the shell it runs in, and every variable has a
+development default (see [Environment Variables](#environment-variables)), so a
+plain local run needs no file. Only Docker Compose reads a `.env` next to
+`docker-compose.yml`; create it yourself with `POSTGRES_DB`, `POSTGRES_USER`
+and `POSTGRES_PASSWORD`, plus any variable from the table you want to override.
+It is git-ignored.
 
 ### 2. Start Database
 
 ```bash
-docker-compose up -d db
+docker compose up -d db
 ```
 
 ### 3. Run Migrations
@@ -107,7 +115,7 @@ Server will start at `http://localhost:8080`
 ### Run everything with Docker Compose
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 This will start both the database and the API server.
@@ -117,6 +125,7 @@ This will start both the database and the API server.
 ## Makefile Commands
 
 ```bash
+make dev              # Everyday: apply new migrations, then run the API with demo cameras
 make migrate          # Run migrations up
 make migrate-down     # Rollback last migration
 make migrate-reset    # Reset all migrations
@@ -350,4 +359,4 @@ against open.imoulife.com when the account is set up.
 
 ## License
 
-Private — for personal home use only.
+No license has been chosen yet, so all rights are reserved.

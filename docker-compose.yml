@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16
-    container_name: hs_db
+    container_name: homehq_db
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -18,7 +18,7 @@ services:
 
   app:
     build: .
-    container_name: hs_app
+    container_name: homehq_app
     env_file:
       - .env
     ports:
