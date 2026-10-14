@@ -1,14 +1,20 @@
-# Environment
+# Build output
+bin/
+tmp/
+coverage/
+vendor/
+*.exe
+*.test
+*.out
+
+# Your own configuration and data, never committed
 .env
 .env.*
 !.env.example
+data/
+.air.toml
 
-# Binary
-/api
-*.exe
-
-# Data
-/data/uploads
-
-# Go
-vendor/
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
