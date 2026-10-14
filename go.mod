@@ -1,4 +1,4 @@
-module github.com/iMookatayou/homeservice-backend
+module github.com/beamMiter/HomeHQ-server
 
 go 1.25.0
 

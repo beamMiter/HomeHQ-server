@@ -3,7 +3,7 @@ package storage
 import (
 	"log"
 
-	"github.com/iMookatayou/homeservice-backend/internal/config"
+	"github.com/beamMiter/HomeHQ-server/internal/config"
 )
 
 func New(cfg config.Config) Service {

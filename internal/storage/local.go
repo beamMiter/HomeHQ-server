@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/iMookatayou/homeservice-backend/internal/config"
+	"github.com/beamMiter/HomeHQ-server/internal/config"
 )
 
 type Local struct {

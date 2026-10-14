@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/iMookatayou/homeservice-backend/internal/httpx"
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 type Handler struct {

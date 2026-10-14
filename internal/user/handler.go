@@ -10,8 +10,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/iMookatayou/homeservice-backend/internal/auth"
-	"github.com/iMookatayou/homeservice-backend/internal/httpx"
+	"github.com/beamMiter/HomeHQ-server/internal/auth"
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 type Handler struct {
