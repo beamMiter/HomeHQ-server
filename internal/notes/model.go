@@ -11,6 +11,15 @@ const (
 	CatAppointment Category = "appointment"
 )
 
+// Valid reports whether c is a category the database accepts.
+func (c Category) Valid() bool {
+	switch c {
+	case CatGeneral, CatBills, CatChores, CatAppointment:
+		return true
+	}
+	return false
+}
+
 type Note struct {
 	ID        string     `json:"id"`
 	UserID    string     `json:"user_id"`

@@ -51,6 +51,13 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
 		return
 	}
+	if req.Category == "" {
+		req.Category = defaultCategory
+	}
+	if !validCategory(req.Category) {
+		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid category"})
+		return
+	}
 	c := &Chore{
 		Title:     req.Title,
 		Category:  req.Category,
