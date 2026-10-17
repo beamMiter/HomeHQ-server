@@ -138,11 +138,7 @@ func (h *Handler) adjustStock(w http.ResponseWriter, r *http.Request) {
 	}
 	it, err := h.Svc.AdjustStock(r.Context(), id, p.Delta)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-			return
-		}
-		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		h.writeMedicineErr(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, it)
@@ -323,6 +319,10 @@ func (h *Handler) summaryList(r *http.Request, items []MedicineItem) []map[strin
 func (h *Handler) writeMedicineErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotFound) {
 		httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, ErrInsufficientStock) {
+		httpx.JSON(w, http.StatusConflict, map[string]string{"error": "insufficient_stock"})
 		return
 	}
 	httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

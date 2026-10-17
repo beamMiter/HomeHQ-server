@@ -229,10 +229,13 @@ func (r *Repo) ListExpiringSoon(ctx context.Context) ([]MedicineItem, error) {
 
 // Stock adjustment
 func (r *Repo) AdjustStock(ctx context.Context, id string, delta float64) (*MedicineItem, error) {
+	// Stock never goes below zero: taking out more than there is is refused.
+	// (Adding is always allowed, so a count that is already wrong can be put
+	// right.)
 	row := r.DB.QueryRow(ctx, `
 		UPDATE medicine_items
 		SET stock_qty = stock_qty + $1, updated_at = now()
-		WHERE id = $2
+		WHERE id = $2 AND ($1 >= 0 OR stock_qty + $1 >= 0)
 		RETURNING id, name, form, unit, category, stock_qty, expiry_date, location, note, created_at, updated_at
 	`, delta, id)
 
@@ -243,6 +246,11 @@ func (r *Repo) AdjustStock(ctx context.Context, id string, delta float64) (*Medi
 		&it.CreatedAt, &it.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			// Either there is no such item, or there is too little of it.
+			var one int
+			if r.DB.QueryRow(ctx, `SELECT 1 FROM medicine_items WHERE id = $1`, id).Scan(&one) == nil {
+				return nil, ErrInsufficientStock
+			}
 			return nil, ErrNotFound
 		}
 		return nil, err
