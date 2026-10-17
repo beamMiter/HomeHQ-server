@@ -30,8 +30,10 @@ HomeHQ-server/
 │   ├── migrate/      # Migration runner
 │   └── seed/         # Database seeder
 ├── internal/
+│   ├── appliances/   # Appliance control module (lights, plugs, aircon...)
 │   ├── auth/         # JWT auth middleware
 │   ├── bills/        # Bills module
+│   ├── cameras/      # Home cameras (Imou / fake driver)
 │   ├── chores/       # Chores module
 │   ├── config/       # App configuration
 │   ├── contractors/  # Contractors module
@@ -41,6 +43,7 @@ HomeHQ-server/
 │   ├── httpx/        # HTTP helpers & middleware
 │   ├── medicine/     # Medicine stock module
 │   ├── notes/        # Notes module
+│   ├── places/       # Google Places lookup and starred places
 │   ├── purchases/    # Purchases module
 │   ├── storage/      # Storage adapters (Local/R2)
 │   └── user/         # User & auth module
@@ -125,7 +128,7 @@ This will start both the database and the API server.
 ## Makefile Commands
 
 ```bash
-make dev              # Everyday: apply new migrations, then run the API with demo cameras
+make dev              # Everyday: apply new migrations, then run the API with demo cameras and appliances
 make migrate          # Run migrations up
 make migrate-down     # Rollback last migration
 make migrate-reset    # Reset all migrations
@@ -164,6 +167,7 @@ make run              # Run API server
 | `IMOU_BASE_URL` | Override the Imou API host (e.g. `https://openapi-xx.easy4ip.com/openapi`) | region default |
 | `CAMERAS_DRIVER` | `imou`, `fake` (demo cameras, no account needed) or empty (auto) | _(auto)_ |
 | `CAMERAS_FAKE_STREAM_URL` | HLS address the fake driver hands out | Apple's test stream |
+| `APPLIANCES_DRIVER` | `local` = appliances the household adds itself, simulated here (what `make dev` uses); `fake` = a fixed demo set (tests); empty = appliance control off. Real vendors are added as drivers | _(empty = off)_ |
 | `CAMERAS_FAKE_PICTURES` | `true` = the fake cameras give a made-up still picture; otherwise none, so the app shows a camera icon on the cover | `false` |
 
 ---
@@ -185,6 +189,11 @@ make run              # Run API server
 | GET | `/api/v1/me` | Get current user |
 | PATCH | `/api/v1/me` | Update profile |
 | POST | `/api/v1/me/password` | Change password |
+
+Every endpoint that needs auth answers `401 {"error":"account_not_found"}` when
+the token is valid but its account no longer exists (deleted, or the database
+was reset under a running app), and the app then signs out. A user found is
+remembered for a minute, so this is not a query per request.
 
 ### Notes
 | Method | Endpoint | Description |
@@ -325,6 +334,98 @@ string (`PTZ`/`PT`, `ZoomFocus`, `CloseCamera`, `MotionDetect`,
 `HeaderDetect`/`AiHuman`, `WhiteLight`, `Linkagewhitelight`). That is not Imou's own documentation: confirm
 against open.imoulife.com when the account is set up.
 
+### Appliances (optional)
+Off unless `APPLIANCES_DRIVER` names a driver; then it answers
+`503 appliances_disabled`. Auth required. The driver is the source of truth for
+what exists and what state it is in; the server checks each command, relays it,
+reads the state back and logs who sent it.
+
+Drivers: **`local`** keeps the appliances the household adds itself (table
+`registered_appliances`) and simulates them, so nothing real is controlled; it
+is how an appliance is tried out before a vendor driver exists. **`fake`** is a
+fixed set of five, for tests.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/appliances/status` | `{enabled, driver, can_add}`. Always answers, costs no vendor call. `can_add`: the household can add appliances itself |
+| POST | `/api/v1/appliances` | Add one (admin only). Body `{"name","kind","room","brand","model","connection"}`; `kind`: `aircon`, `cooler`, `light`, `fan`, `plug`, `heater`, `other`; `connection`: `demo` (the only one that exists so far). Answers `201` with the appliance. `422 not_supported` when the driver has a fixed list |
+| DELETE | `/api/v1/appliances/:id` | Remove one the household added (admin only), `204` |
+| GET | `/api/v1/appliances` | `{items:[{id,name,kind,room,brand,model,connection,removable,online,status,checked_at,since,auto_off_at,capabilities,state}]}` (see **Status** below). `?refresh=1` skips the 5 s cache |
+| GET | `/api/v1/appliances/:id` | One appliance |
+| POST | `/api/v1/appliances/:id/command` | Body `{"capability":"power","value":true}`. Answers `{id, state, confirmed}` with the state read back from the appliance |
+| GET | `/api/v1/appliances/:id/events?limit=` | Who sent what, newest first (default 50, max 200) |
+
+- **Capabilities** tell the app what to draw and bound what is accepted:
+  `{key, type:"bool"|"int"|"enum", min, max, unit, options, admin_only}`. Keys
+  the app knows: `power`, `brightness`, `temperature`, `mode`, `fan_speed`,
+  `swing`, `cooling`. An air conditioner added through `local` has `power`,
+  `temperature` (16-30 °C), `mode` (`auto`, `cool`, `dry`, `fan`, `heat`),
+  `fan_speed` (1-5) and `swing`; an air cooler (`cooler`, a portable
+  evaporative one) has `power`, `fan_speed` (1-3), `swing` (the louvers sweep
+  left and right), `cooling` (the water pump) and `mode` (`normal`, `natural`,
+  `sleep`).
+- **Status** is decided by the server, so every screen agrees: `status` is
+  `on` (reachable and on), `off` (reachable and off) or `offline` (cannot be
+  reached; `state` is the last one known), the words smart-home apps use. `checked_at` is when
+  `state` was read from the appliance (up to 5 s old, the cache).
+  `since` is when it was switched to how it is now, from the event log; it is
+  left out when that isn't known (switched some other way, e.g. a wall switch,
+  or never switched through us). `auto_off_at` is when the safety switch-off
+  will fire, while a heater is on. The app checks the list again every 10 s
+  while an appliance screen is open.
+- **What a connection needs** (shown by the app when adding): `wifi` — an air
+  conditioner with Wi-Fi, a 2.4 GHz network, the maker's app account and a
+  server driver for that maker; `ir` — a Wi-Fi IR blaster in view of the
+  air conditioner, whose code library has the model (IR is one-way, so the real
+  state cannot be read); `homeassistant` — a Home Assistant with the air
+  conditioner as a climate device and a long-lived token. None of these has a
+  driver yet.
+- **Who may do what:** any signed-in member can switch an appliance on and off
+  (`power`); every other control is `admin_only` (`403 admin_only`).
+- **Values:** an `int` outside `min`..`max` is brought inside it (the answer
+  shows the value that was set); a fraction, or the wrong type, is
+  `400 invalid input`.
+- **Safety switch-off:** a heater switched on is switched off by the server
+  after 2 hours (logged with `source: "auto_off"`), in case the connection
+  drops. The timer lives in the API process, so a restart forgets it.
+- Errors: `409 appliance_offline` (no vendor call is made), `404
+  appliance_not_found`, `422 not_supported` (the appliance lacks that
+  capability), `429 provider_limit`, `503 appliances_misconfigured`,
+  `502 appliances_unavailable`.
+
+### Dashboard
+Where the money went: what the bills and purchases features add up to. Auth
+required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/dashboard/spending?month=YYYY-MM` | The month (default: this one) in one answer. `400` for a bad month |
+
+The answer has `total_spent` (bills paid + purchases bought in the month) with
+`previous_spent` for "up or down on last month"; `bills` (`paid`, `by_type`,
+and what is `unpaid` / `overdue` right now); `purchases` (`spent`,
+`by_category`, what is still `open_*`); a six-month `trend` (oldest first, ending
+with the month); and the next five `upcoming` unpaid bills with `days_left`
+(negative once overdue).
+
+- **Which month a sum belongs to:** a bill by the day it was **paid**
+  (`paid_at`), a purchase by the day it was **bought** (`bought_at`). The
+  database stamps both once, whichever way a bill becomes `paid` or a purchase
+  `bought`/`delivered` (migrations 00015 and 00016). Months are calendar months
+  in Thailand (UTC+7).
+- **Day by day:** `daily` and `previous_daily` list every day of the month and
+  of the month before (bills and purchases per day), and `through_day` says how
+  far the month has got, so the app can draw the two running totals together.
+- **Currency:** totals are in baht. A purchase in another currency is counted in
+  `purchases.excluded_count`, not added.
+
+**Sample data for the dashboard.** `make seed` / `make fresh` also add six
+months of paid bills and bought purchases, every one marked "(demo)" in its
+title, so the charts have something to draw. That part replaces its own earlier
+rows instead of adding to them. `make demo-spending` makes just those rows and
+`make demo-spending-clear` removes them (`go run ./cmd/demospend -dsn=… [-clear]`:
+it has no default database and writes only to this machine's).
+
 ### Files
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -352,8 +453,40 @@ against open.imoulife.com when the account is set up.
 | `medicine_items` | Medicine stock |
 | `medicine_alerts` | Medicine alerts |
 | `contractors` | Contractors list |
+| `starred_places` | Google place ids the household starred |
 | `files` | Uploaded files |
+| `purchase_attachments` | Files attached to a purchase |
+| `purchases.bought_at` | (column) when a purchase was bought; set once by a trigger, used by the dashboard |
+| `registered_appliances` | Appliances the household added itself, with their state (`local` driver) |
+| `appliance_events` | Who switched or adjusted which appliance |
 | `password_resets` | Password reset tokens |
+
+---
+
+## Testing
+
+```bash
+go test ./... -race                       # unit tests (no database needed)
+TEST_DB_DSN='postgres://…' go test ./...  # + the tests that need a migrated database
+```
+
+`go test ./internal/e2e/` runs every main feature (auth, notes, chores, bills,
+purchases, medicine, contractors, files, places, cameras, appliances) over
+HTTP against a **running** API. It is skipped unless `E2E_API_URL` is set, and
+it registers users and creates data, so point it at a throwaway server and
+database only:
+
+```bash
+# terminal 1: the throwaway API (DB_DSN must be the throwaway database)
+DB_DSN='postgres://…' CAMERAS_DRIVER=fake APPLIANCES_DRIVER=fake go run ./cmd/api
+# terminal 2 (the admin account is optional; `DB_DSN=… go run ./cmd/seed` makes one)
+E2E_API_URL=http://localhost:8080 \
+E2E_ADMIN_EMAIL=admin@example.com E2E_ADMIN_PASSWORD=admin2026 \
+  go test ./internal/e2e/ -v
+```
+
+`cmd/seed` takes its database from `-dsn`, then the `DB_DSN` environment
+variable, then the local `homeservice` database.
 
 ---
 

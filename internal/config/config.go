@@ -38,6 +38,11 @@ type Config struct {
 	ImouBaseURL   string // empty = region default, else Imou's global host
 	ImouRegion    string // "sg"; other regions: set ImouBaseURL
 
+	// Appliances (optional). AppliancesDriver is "local" (appliances the
+	// household adds itself, simulated here), "fake" (a fixed demo set, for
+	// tests) or empty (feature off). Real vendors are added as drivers.
+	AppliancesDriver string
+
 	// Cloudflare R2
 	R2AccountID string
 	R2AccessKey string
@@ -106,6 +111,8 @@ func Load() Config {
 		ImouAppSecret: Getenv("IMOU_APP_SECRET", ""),
 		ImouBaseURL:   Getenv("IMOU_BASE_URL", ""),
 		ImouRegion:    Getenv("IMOU_REGION", ""),
+
+		AppliancesDriver: Getenv("APPLIANCES_DRIVER", ""),
 
 		R2AccountID: Getenv("R2_ACCOUNT_ID", ""),
 		R2AccessKey: Getenv("R2_ACCESS_KEY_ID", ""),
