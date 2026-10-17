@@ -2,6 +2,17 @@ package chores
 
 import "time"
 
+// Categories the database accepts (migration 00004).
+const defaultCategory = "general"
+
+func validCategory(c string) bool {
+	switch c {
+	case "general", "kitchen", "bathroom", "outdoor":
+		return true
+	}
+	return false
+}
+
 type Chore struct {
 	ID          string     `json:"id"`
 	Title       string     `json:"title"`

@@ -2,18 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"github.com/beamMiter/HomeHQ-server/internal/appliances"
 	"github.com/beamMiter/HomeHQ-server/internal/auth"
 	"github.com/beamMiter/HomeHQ-server/internal/bills"
 	"github.com/beamMiter/HomeHQ-server/internal/cameras"
 	"github.com/beamMiter/HomeHQ-server/internal/chores"
 	"github.com/beamMiter/HomeHQ-server/internal/config"
 	"github.com/beamMiter/HomeHQ-server/internal/contractors"
+	"github.com/beamMiter/HomeHQ-server/internal/dashboard"
 	"github.com/beamMiter/HomeHQ-server/internal/db"
 	"github.com/beamMiter/HomeHQ-server/internal/files"
 	"github.com/beamMiter/HomeHQ-server/internal/health"
@@ -111,6 +114,28 @@ func main() {
 		logger.Info("cameras disabled: set IMOU_APP_ID/IMOU_APP_SECRET (or CAMERAS_DRIVER=fake)")
 	}
 
+	// Appliances (off unless APPLIANCES_DRIVER names a driver)
+	var appDriver appliances.Driver
+	switch kind := cfg.AppliancesDriver; kind {
+	case "":
+	case "fake":
+		appDriver = appliances.NewFake()
+	case "local":
+		appDriver = appliances.NewLocal(appliances.NewPGRegistry(pool))
+	default:
+		logger.Warn("unknown APPLIANCES_DRIVER, appliances stay off", zap.String("driver", kind))
+	}
+	appSvc := appliances.NewService(appDriver, appliances.NewPGStore(pool))
+	appH := appliances.NewHandler(appSvc)
+	if appSvc.Enabled() {
+		logger.Info("appliances enabled", zap.String("driver", appDriver.Name()))
+	} else {
+		logger.Info("appliances disabled: set APPLIANCES_DRIVER=local to add your own (or fake for a demo set)")
+	}
+
+	// Spending dashboard (bills + purchases)
+	dashH := dashboard.NewHandler(dashboard.NewPGStore(pool))
+
 	// Medicine
 	mRepo := medicine.NewRepo(pool)
 	mSvc := medicine.NewService(mRepo)
@@ -139,6 +164,15 @@ func main() {
 		// Auth required
 		api.Group(func(pr chi.Router) {
 			pr.Use(auth.RequireAuth(cfg.JWTSecret, auth.NewClaims))
+			// A valid token whose account is gone gets a 401, not a failure
+			// further in (see auth.RequireUser).
+			pr.Use(auth.RequireUser(func(ctx context.Context, id string) (bool, error) {
+				_, err := uRepo.ByID(ctx, id)
+				if errors.Is(err, user.ErrNotFound) {
+					return false, nil
+				}
+				return err == nil, err
+			}))
 
 			pr.Get("/me", uHandler.Me)
 			pr.Patch("/me", uHandler.UpdateProfile)
@@ -150,6 +184,7 @@ func main() {
 			choresHandler.RegisterRoutes(pr)
 			pHandler.RegisterRoutes(pr)
 			bHandler.RegisterRoutes(pr)
+			dashH.RegisterRoutes(pr)
 
 			pr.Route("/medicine", func(r chi.Router) {
 				mHandler.RegisterRoutes(r)
@@ -165,6 +200,10 @@ func main() {
 
 			pr.Route("/cameras", func(r chi.Router) {
 				camH.RegisterRoutes(r)
+			})
+
+			pr.Route("/appliances", func(r chi.Router) {
+				appH.RegisterRoutes(r)
 			})
 		})
 	})
