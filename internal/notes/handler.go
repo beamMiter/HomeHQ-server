@@ -113,6 +113,10 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
 		return
 	}
+	if p.Category != "" && !p.Category.Valid() {
+		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid category"})
+		return
+	}
 	n, err := h.Repo.Create(r.Context(), claims.UserID, p)
 	if err != nil {
 		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -130,6 +134,10 @@ func (h Handler) update(w http.ResponseWriter, r *http.Request) {
 	var p UpdateNotePayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if p.Category != nil && !p.Category.Valid() {
+		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid category"})
 		return
 	}
 	n, err := h.Repo.Update(r.Context(), claims.UserID, chi.URLParam(r, "id"), p)
