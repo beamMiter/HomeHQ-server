@@ -28,11 +28,19 @@ func TestSearchDistance(t *testing.T) {
 	// it before they run and leave the test rows behind.
 	t.Cleanup(pool.Close)
 
-	// created_by is a FK to users, so borrow any existing user.
+	// created_by is a FK to users. Use a user of our own, so the test also runs
+	// on an empty database (as in CI) instead of being skipped. Registered
+	// before the contractor cleanup below, so it runs after it.
+	const email = "__repo_test_contractor@example.test"
 	var userID string
-	if err := pool.QueryRow(ctx, `SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
-		t.Skipf("need at least one user row to own the test data: %v", err)
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, password_hash) VALUES ('repo test', $1, 'x')
+		ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+		RETURNING id
+	`, email).Scan(&userID); err != nil {
+		t.Fatalf("create the owning user: %v", err)
 	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE email = $1`, email) })
 
 	const name = "__repo_test_contractor__"
 	cleanup := func() {
