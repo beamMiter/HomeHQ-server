@@ -59,3 +59,27 @@ backup*.sql
 
 # Local assistant workspace
 .claude/
+
+# Python (deploy/billing-killswitch): caches and virtual environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local overrides and per-tool credentials
+docker-compose.override.yml
+.envrc
+.npmrc
+.netrc
+.pypirc
+
+# A cloud key under the name the console gives it on download:
+# <project-id>-<12 hex characters>.json
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
+
+# Leftovers of patching and profiling
+*.orig
+*.rej
+*.bak
+*.prof
+*.pprof
