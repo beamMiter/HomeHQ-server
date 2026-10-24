@@ -1,0 +1,22 @@
+# Keep secrets, local data and history out of the image build context.
+.git
+.github
+.env
+.env.*
+!.env.example
+data/
+bin/
+tmp/
+coverage/
+*.log
+*.pem
+*.key
+*.p8
+*.p12
+.claude/
+.idea/
+.vscode/
+.DS_Store
+README.md
+deploy/
+docs/
