@@ -16,18 +16,28 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("invalid postgres DSN: %w", err)
 	}
 
-	cfg.MaxConns = 15
-	cfg.MinConns = 2
-	cfg.HealthCheckPeriod = 30 * time.Second
-	cfg.MaxConnLifetime = time.Hour
-	cfg.MaxConnIdleTime = 10 * time.Minute
+	// A household needs a handful of connections, and a serverless host such as
+	// Neon (free tier: compute sleeps after 5 idle minutes and bills by the
+	// hour awake) is best served by a pool that holds none while idle:
+	// connections closed after 2 minutes are never found dead after the compute
+	// slept, and nothing redials in the background to wake it. (An idle
+	// connection handed out after more than a second is pinged first, so a
+	// stale one is replaced rather than failing a request.)
+	cfg.MaxConns = 5
+	cfg.MinConns = 0
+	cfg.HealthCheckPeriod = time.Minute
+	cfg.MaxConnLifetime = 30 * time.Minute
+	cfg.MaxConnIdleTime = 2 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres pool: %w", err)
 	}
 
-	ctxPing, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// A serverless database that has gone to sleep (Neon free: after 5 idle
+	// minutes) takes a moment to wake on the first connection; 3 seconds was
+	// too tight and would have stopped the server from starting.
+	ctxPing, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := pool.Ping(ctxPing); err != nil {
 		pool.Close()

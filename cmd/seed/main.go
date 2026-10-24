@@ -5,10 +5,12 @@ import (
 	"flag"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/beamMiter/HomeHQ-server/internal/db"
 	"github.com/beamMiter/HomeHQ-server/internal/demo"
 )
 
@@ -16,6 +18,7 @@ func main() {
 	// -dsn wins, then the DB_DSN environment variable, then the local dev
 	// database. (Before this, -dsn was accepted and silently ignored.)
 	flagDSN := flag.String("dsn", "", "database to seed (default: $DB_DSN, then the local dev database)")
+	allowRemote := flag.Bool("allow-remote", false, "seed a database that is not on this machine")
 	flag.Parse()
 	dsn := *flagDSN
 	if dsn == "" {
@@ -23,6 +26,16 @@ func main() {
 	}
 	if dsn == "" {
 		dsn = "postgres://dev:devpass@localhost:5432/homeservice?sslmode=disable"
+	}
+
+	// The seed makes accounts with passwords that are written in the source.
+	// On a real server that is a back door, so it never runs there, and it
+	// refuses any database that is not on this machine unless told otherwise.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		log.Fatal("refusing to seed: APP_ENV=production (demo accounts have known passwords)")
+	}
+	if err := db.RefuseRemote(dsn, *allowRemote, "seed demo accounts and data"); err != nil {
+		log.Fatal(err)
 	}
 
 	ctx := context.Background()
