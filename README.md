@@ -96,12 +96,36 @@ go run ./cmd/migrate -cmd=up
 go run ./cmd/seed
 ```
 
-Dev accounts (local only — never seed a production database):
+Dev accounts (local only — their passwords are written in the source, so the
+seed refuses `APP_ENV=production` and refuses any database that is not on this
+machine unless you pass `-allow-remote`):
 
 | Role | Email | Password |
 |---|---|---|
 | admin | `admin@example.com` | `admin2026` |
 | member | `user@example.com` | `user2026` |
+
+### Real accounts (sign-up is closed)
+
+Every account can read all of the household's data, so the API has no sign-up
+(`POST /auth/register` does not exist; the route is commented out in
+`cmd/api/main.go` and the handler is kept for later). The owner makes accounts
+from the command line, which talks to the database directly. The password goes
+in through a variable, never a flag, so it stays out of shell history:
+
+```bash
+# Type it twice: the password is not echoed, so a typo is invisible and would
+# leave an account nobody can sign in to.
+read -rs "A?Password: "; echo; read -rs "B?Again: "; echo
+[ "$A" = "$B" ] && export ADDUSER_PASSWORD="$A" || echo "they differ"; unset A B
+go run ./cmd/adduser -dsn "$DB_DSN" -email mum@example.com -name "Mum"
+go run ./cmd/adduser -dsn "$DB_DSN" -email me@example.com -name "Me" -role admin
+go run ./cmd/adduser -dsn "$DB_DSN" -email mum@example.com -reset   # forgotten password
+unset ADDUSER_PASSWORD
+```
+
+Passwords are 8 to 72 bytes. `-reset` also signs that account out everywhere.
+There is no email yet, so this is also how a forgotten password is dealt with.
 
 ### 5. Start Server
 
@@ -121,7 +145,16 @@ Server will start at `http://localhost:8080`
 docker compose up -d
 ```
 
-This will start both the database and the API server.
+This will start both the database and the API server. The database port is
+published on `127.0.0.1` only.
+
+### Production
+
+[docs/deploy.md](docs/deploy.md) walks through a free-tier deployment (Cloud
+Run + Neon + R2). With `APP_ENV=production` the server refuses to start on a
+default or short `JWT_SECRET`, the local development database, or a wildcard
+CORS origin, never prints password-reset tokens, and sends no CORS headers
+unless `CORS_ALLOW_ORIGIN` names an origin.
 
 ---
 
@@ -144,10 +177,13 @@ make run              # Run API server
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `APP_PORT` | Server port | `8080` |
-| `DB_DSN` | PostgreSQL connection string | `postgres://dev:devpass@localhost:5432/homeservice?sslmode=disable` |
-| `JWT_SECRET` | JWT signing secret | `change-me` |
-| `CORS_ALLOW_ORIGIN` | Allowed CORS origin | `*` |
+| `APP_ENV` | `production` makes unsafe settings (below) a start-up error, and keeps password-reset tokens out of the log | `development` |
+| `APP_PORT` | Server port (falls back to `PORT`, which cloud hosts set) | `8080` |
+| `DB_DSN` | PostgreSQL connection string. Production refuses the local default | `postgres://dev:devpass@localhost:5432/homeservice?sslmode=disable` |
+| `JWT_SECRET` | JWT signing secret. Production needs 32+ characters (`openssl rand -hex 32`) | `change-me` |
+| `CORS_ALLOW_ORIGIN` | The one browser origin allowed. The app is native and needs none: leave it unset in production (no CORS headers at all). `*` is refused in production | `*` in development, none in production |
+| `TRUSTED_PROXY_HOPS` | How many reverse proxies sit in front and add to `X-Forwarded-For` (Cloud Run, Caddy: 1). Decides which address the rate limits see; too high lets a caller choose their own, 0 ignores the header | `0` |
+| `AUTH_RATE_LIMIT_PER_MIN` | Calls per minute per address on login/refresh/forgot/reset (burst 20). `0` = off. Wrong passwords are limited separately: 10 per account then one per 90 s, 20 per address then one per 45 s | `60` |
 | `STORAGE_BACKEND` | Storage backend (`local` or `r2`) | `local` |
 | `LOCAL_STORAGE_DIR` | Local storage directory | `./data/uploads` |
 | `PUBLIC_BASE_URL` | Public URL for file access | `http://localhost:8080/static` |
@@ -177,23 +213,46 @@ make run              # Run API server
 ### Auth (Public)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/auth/register` | Register new user |
-| POST | `/api/v1/auth/login` | Login |
-| POST | `/api/v1/auth/logout` | Logout |
-| POST | `/api/v1/auth/forgot-password` | Request password reset |
-| POST | `/api/v1/auth/reset-password` | Reset password |
+| POST | `/api/v1/auth/login` | Login (answers 201). Wrong attempts are rate limited: 429 with `Retry-After` |
+| POST | `/api/v1/auth/refresh` | Trade a **refresh** token for a new pair (an access token is refused) |
+| POST | `/api/v1/auth/forgot-password` | Always answers 200. No email is sent yet: development logs a token; production makes none (use `cmd/adduser -reset`) |
+| POST | `/api/v1/auth/reset-password` | Reset password with a token (single use, one hour) |
+
+There is no sign-up: see [Real accounts](#real-accounts-sign-up-is-closed).
+The login routes share a per-address cap (`AUTH_RATE_LIMIT_PER_MIN`).
+
+Tokens come in two kinds, told apart by their `typ` claim. An **access** token
+(24 h) opens the API; a **refresh** token (7 d) opens only `/auth/refresh`.
+Each carries the account's `token_version`; changing or resetting a password
+raises it, which ends every earlier token at once. Changing a password
+therefore answers with a fresh `access_token`/`refresh_token` for the device
+that asked, which the app should store. `POST /auth/logout` only acknowledges:
+the app discards its tokens.
 
 ### User (Auth Required)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/me` | Get current user |
 | PATCH | `/api/v1/me` | Update profile |
-| POST | `/api/v1/me/password` | Change password |
+| POST | `/api/v1/me/password` | Change password (checks the old one; answers with fresh tokens) |
+| POST | `/api/v1/auth/logout` | Acknowledge a logout (the app discards its tokens) |
 
 Every endpoint that needs auth answers `401 {"error":"account_not_found"}` when
 the token is valid but its account no longer exists (deleted, or the database
-was reset under a running app), and the app then signs out. A user found is
-remembered for a minute, so this is not a query per request.
+was reset under a running app), and `401 {"error":"session_revoked"}` when the
+password has been changed since the token was issued; the app then signs out.
+A user found is remembered for a minute, so this is not a query per request
+(a change made here takes effect at once).
+
+### Limits and safety
+
+- Request bodies are capped at 1 MiB (uploads: 26 MiB) — `413` beyond that.
+- Errors from the database never reach the caller: they answer a fixed
+  `internal error` (500) or `invalid input` (400) and the detail goes to the log.
+- Uploads accept JPEG, PNG, GIF, WebP, HEIC/HEIF, MP4 and PDF only; the file's
+  first bytes must match the claimed type, and the stored name keeps nothing
+  from the client but a plain-character stem.
+- Searches treat `%` and `_` literally and use at most 100 characters.
 
 ### Notes
 | Method | Endpoint | Description |
@@ -436,8 +495,8 @@ it has no default database and writes only to this machine's).
 ### Health
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/healthz` | Liveness check |
-| GET | `/readyz` | Readiness check |
+| GET | `/healthz` | Liveness check (not reachable on a Cloud Run `run.app` address: Google's front end answers that path itself; use `/readyz` there) |
+| GET | `/readyz` | Readiness check (does not touch the database) |
 
 ---
 
@@ -473,20 +532,26 @@ TEST_DB_DSN='postgres://…' go test ./...  # + the tests that need a migrated d
 `go test ./internal/e2e/` runs every main feature (auth, notes, chores, bills,
 purchases, medicine, contractors, files, places, cameras, appliances) over
 HTTP against a **running** API. It is skipped unless `E2E_API_URL` is set, and
-it registers users and creates data, so point it at a throwaway server and
-database only:
+it creates users and data, so point it at a throwaway server and database
+only. Sign-up is closed, so it makes its accounts directly in that database:
+`E2E_DB_DSN` must be the DSN the throwaway API runs on. Raise
+`AUTH_RATE_LIMIT_PER_MIN` for the run (the suite signs in more often than a
+person does):
 
 ```bash
 # terminal 1: the throwaway API (DB_DSN must be the throwaway database)
-DB_DSN='postgres://…' CAMERAS_DRIVER=fake APPLIANCES_DRIVER=fake go run ./cmd/api
+DB_DSN='postgres://…' AUTH_RATE_LIMIT_PER_MIN=600 CAMERAS_DRIVER=fake APPLIANCES_DRIVER=fake go run ./cmd/api
 # terminal 2 (the admin account is optional; `DB_DSN=… go run ./cmd/seed` makes one)
-E2E_API_URL=http://localhost:8080 \
+E2E_API_URL=http://localhost:8080 E2E_DB_DSN='postgres://…' \
 E2E_ADMIN_EMAIL=admin@example.com E2E_ADMIN_PASSWORD=admin2026 \
   go test ./internal/e2e/ -v
 ```
 
 `cmd/seed` takes its database from `-dsn`, then the `DB_DSN` environment
-variable, then the local `homeservice` database.
+variable, then the local `homeservice` database. `cmd/seed`, and
+`cmd/migrate -cmd=down|reset`, refuse a database that is not on this machine
+(and `APP_ENV=production`) unless you pass `-allow-remote`, so a `DB_DSN` left
+in your shell from a deploy cannot be wiped by `make fresh`.
 
 ---
 
