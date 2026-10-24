@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -85,7 +87,7 @@ func (r *Repo) Search(ctx context.Context, f SearchFilter) ([]ContractorSearchRe
 
 	if f.Query != "" {
 		sb.WriteString(fmt.Sprintf(` AND (name ILIKE $%d OR address ILIKE $%d OR note ILIKE $%d)`, argIdx, argIdx, argIdx))
-		args = append(args, "%"+f.Query+"%")
+		args = append(args, httpx.LikeContains(f.Query))
 		argIdx++
 	}
 

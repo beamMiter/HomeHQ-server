@@ -34,7 +34,9 @@ func keyFuncHMAC(secret string) jwt.Keyfunc {
 	}
 }
 
-// RequireAuth
+// RequireAuth lets a request through only with a valid access token. A refresh
+// token is refused here: it exists to be traded for a new pair at
+// /auth/refresh, and accepting it would turn a 24 hour session into 7 days.
 func RequireAuth(secret string, newClaims func() *Claims) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,14 +48,9 @@ func RequireAuth(secret string, newClaims func() *Claims) func(http.Handler) htt
 				return
 			}
 
-			claims := newClaims()
-			parser := jwt.NewParser(
-				jwt.WithValidMethods([]string{"HS256", "HS384", "HS512"}),
-				jwt.WithLeeway(60*time.Second),
-			)
-			token, err := parser.ParseWithClaims(raw, claims, keyFuncHMAC(secret))
-			if err != nil || !token.Valid {
-				log.Printf("[AUTH] ❌ invalid token: %v (%s %s)", err, r.Method, r.URL.Path)
+			claims, err := parseInto(newClaims(), secret, raw, TypeAccess)
+			if err != nil {
+				log.Printf("[AUTH] ❌ %v (%s %s)", err, r.Method, r.URL.Path)
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
@@ -80,16 +77,11 @@ func OptionalAuth(secret string, newClaims func() *Claims) func(http.Handler) ht
 			authHeader := r.Header.Get("Authorization")
 			raw, ok := bearerTokenFromHeader(authHeader)
 			if ok {
-				claims := newClaims()
-				parser := jwt.NewParser(
-					jwt.WithValidMethods([]string{"HS256", "HS384", "HS512"}),
-					jwt.WithLeeway(60*time.Second),
-				)
-				if token, err := parser.ParseWithClaims(raw, claims, keyFuncHMAC(secret)); err == nil && token.Valid {
+				if claims, err := parseInto(newClaims(), secret, raw, TypeAccess); err == nil {
 					log.Printf("[AUTH] ℹ️ optional ok user=%s role=%s path=%s",
 						claims.UserID, claims.Role, r.URL.Path)
 					r = r.WithContext(context.WithValue(r.Context(), userCtxKey, claims))
-				} else if err != nil {
+				} else {
 					log.Printf("[AUTH] ⚠️ optional token invalid: %v path=%s", err, r.URL.Path)
 				}
 			}

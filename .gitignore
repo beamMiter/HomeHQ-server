@@ -18,3 +18,68 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# Secrets and keys: never committed, whatever the file is called
+*.pem
+*.key
+# Apple push (APNs) auth keys
+*.p8
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+service-account*.json
+*-credentials.json
+credentials.json
+client_secret*.json
+application_default_credentials.json
+# Cloud Run --env-vars-file
+env.yaml
+*.env.yaml
+.secrets/
+secrets/
+
+# Database dumps, local databases and logs
+*.dump
+*.sql.gz
+dump*.sql
+backup*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Local assistant workspace
+.claude/
+
+# Python (deploy/billing-killswitch): caches and virtual environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local overrides and per-tool credentials
+docker-compose.override.yml
+.envrc
+.npmrc
+.netrc
+.pypirc
+
+# A cloud key under the name the console gives it on download:
+# <project-id>-<12 hex characters>.json
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
+
+# Leftovers of patching and profiling
+*.orig
+*.rej
+*.bak
+*.prof
+*.pprof

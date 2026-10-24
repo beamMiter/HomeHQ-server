@@ -31,7 +31,7 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	list, err := h.Svc.ListBills(r.Context(), q, status, p.Limit, p.Offset)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, list, p)
@@ -45,7 +45,7 @@ func (h Handler) getByID(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, bill)
@@ -64,7 +64,7 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	bill, err := h.Svc.CreateBill(r.Context(), userID, p)
 	if err != nil {
-		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.ServiceError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, bill)
@@ -83,7 +83,7 @@ func (h Handler) update(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, bill)
@@ -96,7 +96,7 @@ func (h Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -110,7 +110,7 @@ func (h Handler) markPaid(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, bill)
@@ -119,7 +119,7 @@ func (h Handler) markPaid(w http.ResponseWriter, r *http.Request) {
 func (h Handler) summary(w http.ResponseWriter, r *http.Request) {
 	res, err := h.Svc.Summarize(r.Context())
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, res)

@@ -52,7 +52,7 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 		Offset:   p.Offset,
 	})
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, list, p)
@@ -65,7 +65,7 @@ func (h Handler) getByID(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)
@@ -88,7 +88,7 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.Svc.Create(r.Context(), uid, in)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, p)
@@ -119,7 +119,7 @@ func (h Handler) update(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "edit window expired"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)
@@ -144,7 +144,7 @@ func (h Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "cannot delete"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -162,7 +162,7 @@ func (h Handler) claim(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "already claimed"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)
@@ -189,7 +189,7 @@ func (h Handler) progress(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "invalid transition"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)
@@ -211,7 +211,7 @@ func (h Handler) cancel(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "cannot cancel"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)
@@ -241,13 +241,13 @@ func (h Handler) linkAttachment(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	
 	p, err := h.Svc.Get(r.Context(), id)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, p)
@@ -266,13 +266,13 @@ func (h Handler) unlinkAttachment(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	
 	p, err := h.Svc.Get(r.Context(), id)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, p)

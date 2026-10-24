@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 type ListFilter struct {
@@ -88,7 +90,7 @@ func (r *repo) List(ctx context.Context, f ListFilter) ([]Purchase, error) {
 
 	if f.Query != "" {
 		sb.WriteString(fmt.Sprintf(` AND (title ILIKE $%d OR note ILIKE $%d OR items::text ILIKE $%d)`, arg, arg, arg))
-		args = append(args, "%"+f.Query+"%")
+		args = append(args, httpx.LikeContains(f.Query))
 		arg++
 	}
 	if f.Status != nil && *f.Status != "" {

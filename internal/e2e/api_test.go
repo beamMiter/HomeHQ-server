@@ -5,13 +5,17 @@
 // medicine, files) as well as the ones that do.
 //
 // It is skipped unless E2E_API_URL is set. Point it at a THROWAWAY server and
-// database: every run registers new users and creates data (it deletes what it
-// creates, but the users stay).
+// database: every run creates new users and data (it deletes what it creates,
+// but the users stay).
+//
+// Sign-up is closed in the API, so the test makes its accounts the way the
+// owner does, straight in the database: E2E_DB_DSN must be the DSN of the same
+// throwaway database the API uses.
 //
 //	# terminal 1: a throwaway database and API
 //	DB_DSN=<throwaway> CAMERAS_DRIVER=fake APPLIANCES_DRIVER=fake go run ./cmd/api
 //	# terminal 2
-//	E2E_API_URL=http://localhost:8080 go test ./internal/e2e/ -v
+//	E2E_API_URL=http://localhost:8080 E2E_DB_DSN=<throwaway> go test ./internal/e2e/ -v
 //
 // Optional: E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD (an admin account, e.g. from
 // `go run ./cmd/seed` on the throwaway database) enable the admin-only checks.
@@ -19,6 +23,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -29,8 +34,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	acct "github.com/beamMiter/HomeHQ-server/internal/user"
 )
 
 // ── tiny HTTP client ────────────────────────────────────────────────────────
@@ -170,16 +180,42 @@ type account struct {
 	*client
 }
 
+var (
+	dbOnce sync.Once
+	dbPool *pgxpool.Pool
+	dbErr  error
+)
+
+// accounts opens the throwaway database accounts are made in.
+func accounts(t *testing.T) acct.Repo {
+	t.Helper()
+	dbOnce.Do(func() {
+		dsn := os.Getenv("E2E_DB_DSN")
+		if dsn == "" {
+			dbErr = fmt.Errorf("E2E_DB_DSN is not set: sign-up is closed, so the test makes its accounts in the database (use the throwaway database the API runs on)")
+			return
+		}
+		dbPool, dbErr = pgxpool.New(context.Background(), dsn)
+	})
+	if dbErr != nil {
+		t.Fatal(dbErr)
+	}
+	return acct.Repo{DB: dbPool}
+}
+
+// register makes an account in the database (the API has no sign-up) and signs
+// it in through the API.
 func register(t *testing.T, base *client, label string) account {
 	t.Helper()
 	email := fmt.Sprintf("e2e-%s-%s@example.test", label, runID)
 	const password = "e2e-pass-123"
-	v := base.mustCall(http.StatusCreated, "POST", "/auth/register", map[string]string{
-		"name": "E2E " + label, "email": email, "password": password,
-	})
+	if _, err := accounts(t).CreateAccount(context.Background(), "E2E "+label, email, "member", password); err != nil {
+		t.Fatalf("create %s: %v", email, err)
+	}
+	code, v := login(t, base, email, password)
 	tok := str(obj(v), "access_token")
-	if tok == "" {
-		t.Fatalf("register gave no access_token: %v", v)
+	if !ok(code) || tok == "" {
+		t.Fatalf("sign in as %s = %d %v", email, code, v)
 	}
 	return account{email: email, password: password, client: base.with(tok)}
 }
@@ -251,10 +287,15 @@ func TestAPI(t *testing.T) {
 			t.Errorf("/me with a bad token = %d, want 401", code)
 		}
 
+		// Sign-up is closed: the route does not exist, and nothing is created.
+		stranger := "stranger-" + runID + "@example.test"
 		if code, _ := c.call("POST", "/auth/register", map[string]string{
-			"name": "Dup", "email": member.email, "password": member.password,
-		}); code < 400 {
-			t.Errorf("registering an existing email = %d, want an error", code)
+			"name": "Stranger", "email": stranger, "password": "stranger-pass-123",
+		}); code != 404 && code != 405 {
+			t.Errorf("POST /auth/register = %d, want 404 (sign-up is closed)", code)
+		}
+		if code, _ := login(t, c, stranger, "stranger-pass-123"); code != 401 {
+			t.Errorf("an account appeared through the closed sign-up: login = %d", code)
 		}
 		if code, _ := login(t, c, member.email, "wrong-password"); code != 401 {
 			t.Errorf("login with a wrong password = %d, want 401", code)
@@ -269,11 +310,21 @@ func TestAPI(t *testing.T) {
 			t.Errorf("name after rename = %q", got)
 		}
 
-		if rt := str(obj(v), "refresh_token"); rt != "" {
-			r := c.mustCall(200, "POST", "/auth/refresh", map[string]string{"refresh_token": rt})
-			if str(obj(r), "access_token") == "" {
-				t.Errorf("refresh gave no access_token: %v", r)
-			}
+		// The two tokens are not interchangeable: a refresh token opens no
+		// route, and an access token refreshes nothing.
+		at, rt := str(obj(v), "access_token"), str(obj(v), "refresh_token")
+		if rt == "" {
+			t.Fatalf("login gave no refresh_token: %v", v)
+		}
+		if code, _ := c.with(rt).call("GET", "/me", nil); code != 401 {
+			t.Errorf("/me with a refresh token = %d, want 401", code)
+		}
+		if code, _ := c.call("POST", "/auth/refresh", map[string]string{"refresh_token": at}); code != 401 {
+			t.Errorf("refresh with an access token = %d, want 401", code)
+		}
+		r := c.mustCall(200, "POST", "/auth/refresh", map[string]string{"refresh_token": rt})
+		if str(obj(r), "access_token") == "" {
+			t.Errorf("refresh gave no access_token: %v", r)
 		}
 
 		// Asking for a reset must not reveal whether the email exists.
@@ -291,9 +342,22 @@ func TestAPI(t *testing.T) {
 		}); code < 400 {
 			t.Errorf("change with a wrong old password = %d, want an error", code)
 		}
-		pc.mustCall(200, "POST", "/me/password", map[string]string{
+		if code, _ := pc.call("POST", "/me/password", map[string]string{
+			"old_password": pw.password, "new_password": "short",
+		}); code != 400 {
+			t.Errorf("change to a too-short password = %d, want 400", code)
+		}
+		changed := obj(pc.mustCall(200, "POST", "/me/password", map[string]string{
 			"old_password": pw.password, "new_password": "e2e-new-pass-456",
-		})
+		}))
+		// Changing the password ends the old sessions; the answer carries a
+		// fresh pair for the device that asked.
+		if code, _ := pc.call("GET", "/me", nil); code != 401 {
+			t.Errorf("old token after a password change = %d, want 401", code)
+		}
+		if code, _ := c.with(str(changed, "access_token")).call("GET", "/me", nil); code != 200 {
+			t.Errorf("fresh token from the password change = %d, want 200", code)
+		}
 		if code, _ := login(t, c, pw.email, "e2e-new-pass-456"); !ok(code) {
 			t.Errorf("login with the new password = %d", code)
 		}
@@ -301,6 +365,9 @@ func TestAPI(t *testing.T) {
 			t.Errorf("login with the old password = %d, want 401", code)
 		}
 	})
+
+	// ── hostile input ───────────────────────────────────────────────────
+	t.Run("hostile_input", func(t *testing.T) { hostileInput(t, member.client.on(t)) })
 
 	// ── notes ───────────────────────────────────────────────────────────
 	t.Run("notes", func(t *testing.T) {
@@ -1047,4 +1114,144 @@ func TestAPI(t *testing.T) {
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// hostileInput sends the kind of text an attacker (or a curious user) types
+// into search boxes. Every search must answer 200, never an error from the
+// database; wildcards must match only themselves; and the tables must still be
+// there afterwards.
+func hostileInput(t *testing.T, c *client) {
+	tag := "e2e-hostile-" + runID
+	special := tag + " a%b_c" // holds a literal percent and underscore
+	plain := tag + " abc"     // matches them only if the wildcards were not escaped
+
+	type kind struct {
+		name, path   string
+		searchPath   string // where ?q= is read, when it is not the list
+		noUnderscore bool   // the search also reads text that holds underscores of its own
+		create       func(title string) map[string]any
+	}
+	kinds := []kind{
+		{name: "notes", path: "/notes", create: func(title string) map[string]any {
+			return map[string]any{"title": title, "content": "x", "category": "general", "priority": 1, "tags": []string{"e2e"}}
+		}},
+		{name: "bills", path: "/bills", create: func(title string) map[string]any {
+			return map[string]any{"type": "water", "title": title, "amount": 1, "due_date": "2030-12-01T00:00:00Z", "status": "unpaid"}
+		}},
+		// A purchase search reads its items as JSON text, keys included
+		// ("unit_price"), so an underscore is a real match there.
+		{name: "purchases", path: "/purchases", noUnderscore: true, create: func(title string) map[string]any {
+			return map[string]any{"title": title, "currency": "THB", "category": "food",
+				"items": []map[string]any{{"name": "Milk", "qty": 1, "unit": "box", "unit_price": 1}}}
+		}},
+		// The contractor list ignores ?q=; the text search is /contractors/search.
+		{name: "contractors", path: "/contractors", searchPath: "/contractors/search", create: func(title string) map[string]any {
+			return map[string]any{"name": title, "types": []string{"plumber"}, "phone": "0812345678", "lat": 13.7, "lng": 100.5}
+		}},
+	}
+
+	payloads := []string{
+		"'; DROP TABLE notes; --",
+		`" OR 1=1 --`,
+		"%' OR '1'='1",
+		"1; SELECT pg_sleep(5)",
+		"') UNION SELECT password_hash FROM users --",
+		`\`,
+		`\'`,
+		"%00",
+		"\x00",
+		"ไทย%_",
+		strings.Repeat("%_", 2500),
+		strings.Repeat("a", 5000),
+	}
+
+	for _, k := range kinds {
+		t.Run(k.name, func(t *testing.T) {
+			ids := map[string]string{}
+			for _, title := range []string{special, plain} {
+				id := str(obj(c.mustCall(201, "POST", k.path, k.create(title))), "id")
+				if id == "" {
+					t.Fatalf("could not create %q", title)
+				}
+				ids[title] = id
+				path := k.path + "/" + id
+				t.Cleanup(func() { c.call("DELETE", path, nil) })
+			}
+
+			searchPath := k.searchPath
+			if searchPath == "" {
+				searchPath = k.path
+			}
+			search := func(q string) (int, any) {
+				return c.call("GET", searchPath+"?q="+url.QueryEscape(q), nil)
+			}
+
+			// Wildcards match only themselves.
+			for q, wantSpecial := range map[string]bool{"%": true, "_": true, "a%b": true, "abc": false} {
+				if q == "_" && k.noUnderscore {
+					continue
+				}
+				code, v := search(q)
+				if code != 200 {
+					t.Errorf("q=%q = %d", q, code)
+					continue
+				}
+				if q == "abc" {
+					if !has(v, "id", ids[plain]) {
+						t.Errorf("q=abc should find the plain row")
+					}
+					continue
+				}
+				if got := has(v, "id", ids[special]); got != wantSpecial {
+					t.Errorf("q=%q found the special row = %v, want %v", q, got, wantSpecial)
+				}
+				if has(v, "id", ids[plain]) {
+					t.Errorf("q=%q matched the plain row: a wildcard was treated as a wildcard", q)
+				}
+			}
+
+			// Nothing typed into a search may come back as a server error, or take long.
+			start := time.Now()
+			for _, q := range payloads {
+				if code, _ := search(q); code != 200 {
+					t.Errorf("q=%.40q = %d, want 200", q, code)
+				}
+			}
+			if d := time.Since(start); d > 4*time.Second {
+				t.Errorf("hostile searches took %v", d)
+			}
+
+			// Odd paging values are clamped, not trusted.
+			for _, qs := range []string{"limit=-1", "limit=0", "limit=100000", "limit=abc", "page=-3", "offset=-5", "limit=99999999999999999999"} {
+				if code, _ := c.call("GET", k.path+"?"+qs, nil); code >= 500 {
+					t.Errorf("?%s = %d", qs, code)
+				}
+			}
+
+			// The table is still there and the data intact.
+			if code, v := search(tag); code != 200 || !has(v, "id", ids[special]) || !has(v, "id", ids[plain]) {
+				t.Errorf("after the hostile searches: %d, rows present = %v / %v", code, has(v, "id", ids[special]), has(v, "id", ids[plain]))
+			}
+		})
+	}
+
+	// Injection through a JSON body must be stored as plain text, not run.
+	hostileTitle := tag + " '); DELETE FROM notes; --"
+	id := str(obj(c.mustCall(201, "POST", "/notes", map[string]any{
+		"title": hostileTitle, "content": "x", "category": "general", "priority": 1, "tags": []string{"e2e"},
+	})), "id")
+	if id == "" {
+		t.Fatal("a title with SQL in it was refused")
+	}
+	t.Cleanup(func() { c.call("DELETE", "/notes/"+id, nil) })
+	if got := str(obj(c.mustCall(200, "GET", "/notes/"+id, nil)), "title"); got != hostileTitle {
+		t.Errorf("title came back as %q", got)
+	}
+
+	// Ids are not trusted either.
+	for _, bad := range []string{"1' OR '1'='1", "../../etc/passwd", "00000000-0000-0000-0000-000000000000", strings.Repeat("a", 5000)} {
+		if code, _ := c.call("GET", "/notes/"+url.PathEscape(bad), nil); code >= 500 {
+			t.Errorf("GET /notes/%.30s = %d", bad, code)
+		}
+	}
 }
