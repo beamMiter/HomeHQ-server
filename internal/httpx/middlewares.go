@@ -23,9 +23,10 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 
-		// HSTS (เปิดเมื่ออยู่หลัง HTTPS เท่านั้น)
-		// ถ้าพัฒนา local ที่เป็น http ให้คอมเมนต์ออก
-		if r.TLS != nil {
+		// HSTS (เปิดเมื่ออยู่หลัง HTTPS เท่านั้น) — TLS usually ends at the
+		// proxy, which says so in X-Forwarded-Proto. Browsers ignore the header
+		// over plain http, so a forged value gains a caller nothing.
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		}
 
@@ -46,12 +47,33 @@ func NoCache(next http.Handler) http.Handler {
 	})
 }
 
-func CommonMiddlewares(allowOrigin string) []func(http.Handler) http.Handler {
-	return []func(http.Handler) http.Handler{
+// Options configures CommonMiddlewares.
+type Options struct {
+	// CorsOrigin is the one browser origin allowed ("" = none, "*" = any).
+	CorsOrigin string
+	// Development also allows localhost origins, for a web build run locally.
+	Development bool
+	// TrustedProxyHops is how many proxies in front of us append to
+	// X-Forwarded-For (see ClientIP).
+	TrustedProxyHops int
+	// MaxBody caps request bodies (0 = DefaultMaxBody); BodyRules raise or
+	// lower it for single paths.
+	MaxBody   int64
+	BodyRules []BodyRule
+}
+
+func CommonMiddlewares(o Options) []func(http.Handler) http.Handler {
+	maxBody := o.MaxBody
+	if maxBody <= 0 {
+		maxBody = DefaultMaxBody
+	}
+
+	mws := []func(http.Handler) http.Handler{
 		middleware.RequestID,
-		middleware.RealIP,
+		RealClientIP(o.TrustedProxyHops),
 		middleware.Recoverer,
 		middleware.Timeout(60 * time.Second),
+		BodyLimit(maxBody, o.BodyRules...),
 
 		middleware.AllowContentType("application/json", "multipart/form-data"),
 
@@ -59,19 +81,34 @@ func CommonMiddlewares(allowOrigin string) []func(http.Handler) http.Handler {
 		middleware.Logger,
 		SecurityHeaders,
 		NoCache,
-		cors.Handler(cors.Options{
-			AllowedOrigins:   []string{allowOrigin, "http://localhost:*", "http://127.0.0.1:*"},
-			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
-			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-			ExposedHeaders:   []string{"Link"},
-			AllowCredentials: true,
-			MaxAge:           300,
-		}),
-		func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Add("Vary", "Origin")
-				next.ServeHTTP(w, r)
-			})
-		},
 	}
+
+	// The app is a native client and authenticates with a bearer header, so no
+	// cookies are involved (no AllowCredentials). With no origin to allow, the
+	// handler is left out: go-chi/cors treats an empty list as "allow all".
+	var origins []string
+	if o.CorsOrigin != "" {
+		origins = append(origins, o.CorsOrigin)
+	}
+	if o.Development {
+		origins = append(origins, "http://localhost:*", "http://127.0.0.1:*")
+	}
+	if len(origins) > 0 {
+		mws = append(mws,
+			cors.Handler(cors.Options{
+				AllowedOrigins: origins,
+				AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
+				AllowedHeaders: []string{"Accept", "Authorization", "Content-Type"},
+				ExposedHeaders: []string{"Link"},
+				MaxAge:         300,
+			}),
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Add("Vary", "Origin")
+					next.ServeHTTP(w, r)
+				})
+			},
+		)
+	}
+	return mws
 }

@@ -30,7 +30,7 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 	p := httpx.ParsePagination(r)
 	cs, err := h.Repo.List(r.Context(), p.Limit, p.Offset)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, cs, p)
@@ -65,7 +65,7 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: claims.UserID,
 	}
 	if err := h.Repo.Create(r.Context(), c); err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, c)
@@ -87,7 +87,7 @@ func (h Handler) claim(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusConflict, map[string]string{"error": "already claimed"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)
@@ -105,7 +105,7 @@ func (h Handler) complete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)
@@ -126,7 +126,7 @@ func (h Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

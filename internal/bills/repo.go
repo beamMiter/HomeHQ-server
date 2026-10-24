@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 type Repo struct {
@@ -63,7 +65,7 @@ func (r Repo) ListBills(ctx context.Context, q, status string, limit, offset int
 
 	if q != "" {
 		sb.WriteString(fmt.Sprintf(` AND (title ILIKE $%d OR note ILIKE $%d)`, argIdx, argIdx))
-		args = append(args, "%"+q+"%")
+		args = append(args, httpx.LikeContains(q))
 		argIdx++
 	}
 

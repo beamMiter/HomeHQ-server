@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/beamMiter/HomeHQ-server/internal/httpx"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -47,7 +49,7 @@ func (r Repo) List(ctx context.Context, userID string, f ListFilter) ([]Note, er
 	where = append(where, fmt.Sprintf("user_id = $%d", len(args)))
 
 	if f.Query != "" {
-		args = append(args, "%"+strings.TrimSpace(f.Query)+"%")
+		args = append(args, httpx.LikeContains(f.Query))
 		where = append(where, fmt.Sprintf("(title ILIKE $%d OR content ILIKE $%d)", len(args), len(args)))
 	}
 	if f.Category != nil {

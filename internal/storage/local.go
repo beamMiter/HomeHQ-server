@@ -31,9 +31,15 @@ func randName(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// sanitize reduces a client's file name to a bare name that cannot climb out
+// of the storage directory: no directories, no "..", and no separator of
+// either kind (a Windows client sends backslashes).
 func sanitize(name string) string {
-	name = filepath.Base(name)
+	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 	name = strings.ReplaceAll(name, "..", "")
+	if name == "" || name == "." || name == "/" {
+		return "file"
+	}
 	return name
 }
 

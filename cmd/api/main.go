@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -33,6 +36,15 @@ func main() {
 	cfg := config.Load()
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
+	// In production an unsafe setting (default secret, local database, open
+	// CORS) is a reason not to start, not a line in the log.
+	if err := cfg.Validate(); err != nil {
+		logger.Fatal("unsafe production configuration", zap.Error(err))
+	}
+	if cfg.IsProduction() && cfg.StorageBackend == "local" {
+		logger.Warn("STORAGE_BACKEND=local: uploads vanish with the container on most hosts; use r2")
+	}
 
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, cfg.DSN)
@@ -146,7 +158,14 @@ func main() {
 
 	// Router
 	r := chi.NewRouter()
-	for _, m := range httpx.CommonMiddlewares(cfg.CorsOrigin) {
+	for _, m := range httpx.CommonMiddlewares(httpx.Options{
+		CorsOrigin:       cfg.CorsOrigin,
+		Development:      !cfg.IsProduction(),
+		TrustedProxyHops: cfg.TrustedProxyHops,
+		// Everything is small JSON except the one upload route.
+		MaxBody:   httpx.DefaultMaxBody,
+		BodyRules: []httpx.BodyRule{{Path: "/api/v1/uploads", Limit: files.MaxUploadBody}},
+	}) {
 		r.Use(m)
 	}
 
@@ -208,13 +227,37 @@ func main() {
 		})
 	})
 
+	// Every limit here bounds how long one slow or hostile connection can hold
+	// the server. Reads get long enough for a photo over a poor mobile link.
 	srv := &http.Server{
 		Addr:              ":" + cfg.AppPort,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      90 * time.Second, // above the 60 s per-request timeout
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    32 << 10,
 	}
-	logger.Info("listening", zap.String("addr", srv.Addr))
+
+	// Hosts stop a container with SIGTERM and give it a few seconds: finish the
+	// requests in flight rather than cutting them off.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+		<-stop
+		logger.Info("shutting down")
+		sctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(sctx); err != nil {
+			logger.Warn("shutdown", zap.Error(err))
+		}
+	}()
+
+	logger.Info("listening", zap.String("addr", srv.Addr), zap.Bool("production", cfg.IsProduction()))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Fatal("server", zap.Error(err))
 	}
+	<-done
 }

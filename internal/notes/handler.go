@@ -74,7 +74,7 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 		Offset:   p.Offset,
 	})
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, items, p)
@@ -92,7 +92,7 @@ func (h Handler) getByID(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, n)
@@ -119,7 +119,7 @@ func (h Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := h.Repo.Create(r.Context(), claims.UserID, p)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, n)
@@ -146,7 +146,7 @@ func (h Handler) update(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, n)
@@ -163,7 +163,7 @@ func (h Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -182,7 +182,7 @@ func (h Handler) pin(set bool) http.HandlerFunc {
 				httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 				return
 			}
-			httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			httpx.Internal(w, r, err)
 			return
 		}
 		httpx.JSON(w, http.StatusOK, n)
@@ -201,7 +201,7 @@ func (h Handler) done(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, n)
@@ -219,7 +219,7 @@ func (h Handler) undone(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, n)

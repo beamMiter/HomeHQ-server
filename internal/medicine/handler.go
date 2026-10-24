@@ -50,7 +50,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := h.Svc.ListItems(r.Context(), f)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, h.summaryList(r, items))
@@ -64,12 +64,12 @@ func (h *Handler) getByID(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	alert, err := h.Svc.GetAlert(r.Context(), id)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
@@ -89,7 +89,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	it, err := h.Svc.CreateItem(r.Context(), p)
 	if err != nil {
-		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.ServiceError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, it)
@@ -108,7 +108,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, it)
@@ -121,7 +121,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -138,7 +138,7 @@ func (h *Handler) adjustStock(w http.ResponseWriter, r *http.Request) {
 	}
 	it, err := h.Svc.AdjustStock(r.Context(), id, p.Delta)
 	if err != nil {
-		h.writeMedicineErr(w, err)
+		h.writeMedicineErr(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, it)
@@ -160,7 +160,7 @@ func (h *Handler) txnIn(w http.ResponseWriter, r *http.Request) {
 	}
 	it, err := h.Svc.AdjustStock(r.Context(), id, p.Qty)
 	if err != nil {
-		h.writeMedicineErr(w, err)
+		h.writeMedicineErr(w, r, err)
 		return
 	}
 	if p.ExpiryDate != nil && *p.ExpiryDate != "" {
@@ -171,13 +171,13 @@ func (h *Handler) txnIn(w http.ResponseWriter, r *http.Request) {
 		}
 		it, err = h.Svc.Repo.UpdateExpiry(r.Context(), id, &t)
 		if err != nil {
-			h.writeMedicineErr(w, err)
+			h.writeMedicineErr(w, r, err)
 			return
 		}
 	} else if p.ExpiryDate != nil && *p.ExpiryDate == "" {
 		it, err = h.Svc.Repo.UpdateExpiry(r.Context(), id, nil)
 		if err != nil {
-			h.writeMedicineErr(w, err)
+			h.writeMedicineErr(w, r, err)
 			return
 		}
 	}
@@ -199,7 +199,7 @@ func (h *Handler) txnOut(w http.ResponseWriter, r *http.Request) {
 	}
 	it, err := h.Svc.AdjustStock(r.Context(), id, -p.Qty)
 	if err != nil {
-		h.writeMedicineErr(w, err)
+		h.writeMedicineErr(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"item": it})
@@ -209,7 +209,7 @@ func (h *Handler) getAlert(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	a, err := h.Svc.GetAlert(r.Context(), id)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	if a == nil {
@@ -244,7 +244,7 @@ func (h *Handler) upsertAlert(w http.ResponseWriter, r *http.Request) {
 		IsEnabled:        enabled,
 	}
 	if err := h.Svc.UpsertAlert(r.Context(), &a); err != nil {
-		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.ServiceError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, a)
@@ -253,7 +253,7 @@ func (h *Handler) upsertAlert(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listLocations(w http.ResponseWriter, r *http.Request) {
 	locs, err := h.Svc.Repo.ListLocations(r.Context())
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	if locs == nil {
@@ -265,7 +265,7 @@ func (h *Handler) listLocations(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listLowStock(w http.ResponseWriter, r *http.Request) {
 	items, err := h.Svc.ListLowStock(r.Context())
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, items)
@@ -274,7 +274,7 @@ func (h *Handler) listLowStock(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listExpiringSoon(w http.ResponseWriter, r *http.Request) {
 	items, err := h.Svc.ListExpiringSoon(r.Context())
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, items)
@@ -283,7 +283,7 @@ func (h *Handler) listExpiringSoon(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listExpired(w http.ResponseWriter, r *http.Request) {
 	items, err := h.Svc.ListExpired(r.Context())
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, items)
@@ -316,7 +316,7 @@ func (h *Handler) summaryList(r *http.Request, items []MedicineItem) []map[strin
 	return out
 }
 
-func (h *Handler) writeMedicineErr(w http.ResponseWriter, err error) {
+func (h *Handler) writeMedicineErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, ErrNotFound) {
 		httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -325,5 +325,5 @@ func (h *Handler) writeMedicineErr(w http.ResponseWriter, err error) {
 		httpx.JSON(w, http.StatusConflict, map[string]string{"error": "insufficient_stock"})
 		return
 	}
-	httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	httpx.ServiceError(w, r, err)
 }

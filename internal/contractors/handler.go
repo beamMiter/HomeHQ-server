@@ -61,7 +61,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 
 	items, err := h.Svc.Search(r.Context(), f)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, items, p)
@@ -71,7 +71,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	p := httpx.ParsePagination(r)
 	items, err := h.Svc.List(r.Context(), false, p.Limit, p.Offset)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, items, p)
@@ -81,7 +81,7 @@ func (h *Handler) listFavorites(w http.ResponseWriter, r *http.Request) {
 	p := httpx.ParsePagination(r)
 	items, err := h.Svc.List(r.Context(), true, p.Limit, p.Offset)
 	if err != nil {
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.Paginate(w, items, p)
@@ -95,7 +95,7 @@ func (h *Handler) getByID(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)
@@ -114,7 +114,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.Svc.Create(r.Context(), userID, p)
 	if err != nil {
-		httpx.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.ServiceError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, c)
@@ -133,7 +133,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)
@@ -146,7 +146,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -160,7 +160,7 @@ func (h *Handler) toggleFavorite(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		httpx.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.Internal(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)

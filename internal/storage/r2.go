@@ -66,10 +66,13 @@ func (r *R2) PresignPut(ctx context.Context, ownerID, filename, mime string, siz
 	key := generateKey(ownerID, filename)
 
 	presignClient := s3.NewPresignClient(r.client)
+	// ContentType and ContentLength are part of what is signed, so the upload
+	// must be the type and exactly the size the caller was checked for.
 	req, err := presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(r.bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(mime),
+		Bucket:        aws.String(r.bucket),
+		Key:           aws.String(key),
+		ContentType:   aws.String(mime),
+		ContentLength: aws.Int64(size),
 	}, s3.WithPresignExpires(15*time.Minute))
 	if err != nil {
 		return Presign{}, err
@@ -93,6 +96,20 @@ func generateKey(ownerID, filename string) string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	randPart := hex.EncodeToString(b)
-	ext := filepath.Ext(filename)
-	return fmt.Sprintf("%s/%s%s", ownerID, randPart, ext)
+	return fmt.Sprintf("%s/%s%s", ownerID, randPart, safeExt(filename))
+}
+
+// safeExt is the file's extension if it is short and plain (".jpg"), else none,
+// so a name cannot put odd characters into an object key.
+func safeExt(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if len(ext) < 2 || len(ext) > 6 {
+		return ""
+	}
+	for _, c := range ext[1:] {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return ""
+		}
+	}
+	return ext
 }
